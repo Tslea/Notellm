@@ -25,6 +25,8 @@ export default function NoteDetailPage() {
   const saveTimerRef = useRef<NodeJS.Timeout | null>(null);
   const savedContentRef = useRef('');
   const noteIdRef = useRef<string | null>(null);
+  // Track whether content was edited in this session (needs AI reprocess on close)
+  const contentDirtyRef = useRef(false);
 
   // Auto-grow textarea
   function autoResize() {
@@ -92,9 +94,31 @@ export default function NoteDetailPage() {
     };
   }, [isNew, noteId]);
 
-  // Save function
-  async function saveNote(text: string) {
-    if (text.trim().length === 0) return;
+  // Trigger AI reprocess when the user leaves the page (tab hidden, browser back, etc.)
+  useEffect(() => {
+    function triggerAIIfNeeded() {
+      if (!contentDirtyRef.current) return;
+      const id = noteIdRef.current || (noteId !== 'new' ? noteId : null);
+      if (!id) return;
+      contentDirtyRef.current = false;
+      navigator.sendBeacon(`/api/notes/${id}/reprocess`);
+    }
+
+    function handleVisibilityChange() {
+      if (document.visibilityState === 'hidden') {
+        triggerAIIfNeeded();
+      }
+    }
+
+    document.addEventListener('visibilitychange', handleVisibilityChange);
+    return () => {
+      document.removeEventListener('visibilitychange', handleVisibilityChange);
+    };
+  }, [noteId]);
+
+  // Save function (content only — no AI trigger)
+  async function saveNote(text: string): Promise<boolean> {
+    if (text.trim().length === 0) return false;
     setSaving(true);
 
     try {
@@ -110,8 +134,11 @@ export default function NoteDetailPage() {
           noteIdRef.current = data.id;
           setNote(data);
           savedContentRef.current = text;
+          contentDirtyRef.current = true;
           // Replace URL without navigation
           window.history.replaceState(null, '', `/note/${data.id}`);
+          setSaving(false);
+          return true;
         } else {
           setToast('Failed to save. Tap to retry.');
         }
@@ -120,7 +147,7 @@ export default function NoteDetailPage() {
         const id = noteIdRef.current || noteId;
         if (text === savedContentRef.current) {
           setSaving(false);
-          return;
+          return true;
         }
         const res = await fetch(`/api/notes/${id}`, {
           method: 'PATCH',
@@ -131,6 +158,9 @@ export default function NoteDetailPage() {
           const data = await res.json();
           setNote(data);
           savedContentRef.current = text;
+          contentDirtyRef.current = true;
+          setSaving(false);
+          return true;
         } else {
           setToast('Failed to save. Tap to retry.');
         }
@@ -139,6 +169,7 @@ export default function NoteDetailPage() {
       setToast('Failed to save. Tap to retry.');
     }
     setSaving(false);
+    return false;
   }
 
   // Debounced auto-save on content change
@@ -152,12 +183,33 @@ export default function NoteDetailPage() {
     }, 2000);
   }
 
-  // Save on blur
+  // Save on blur (textarea loses focus)
   function handleBlur() {
     if (saveTimerRef.current) clearTimeout(saveTimerRef.current);
     if (content.trim().length > 0 && content !== savedContentRef.current) {
       saveNote(content);
     }
+  }
+
+  // Close the note: save pending content, trigger AI, then navigate home
+  async function handleBack() {
+    // Cancel pending debounce
+    if (saveTimerRef.current) clearTimeout(saveTimerRef.current);
+
+    // Save if there are unsaved changes
+    if (content.trim().length > 0 && content !== savedContentRef.current) {
+      await saveNote(content);
+    }
+
+    // Trigger AI reprocess if content was edited
+    const id = noteIdRef.current || (noteId !== 'new' ? noteId : null);
+    if (id && contentDirtyRef.current) {
+      contentDirtyRef.current = false;
+      // Fire-and-forget from client — server awaits the AI call internally
+      fetch(`/api/notes/${id}/reprocess`, { method: 'POST' }).catch(() => {});
+    }
+
+    router.push('/');
   }
 
   async function handleTogglePin() {
@@ -186,6 +238,7 @@ export default function NoteDetailPage() {
     }
     const res = await fetch(`/api/notes/${id}`, { method: 'DELETE' });
     if (res.ok) {
+      contentDirtyRef.current = false; // no need to reprocess a deleted note
       router.push('/');
     } else {
       setToast('Failed to delete note.');
@@ -210,10 +263,7 @@ export default function NoteDetailPage() {
       <header className="sticky top-0 z-40 bg-white/80 backdrop-blur-lg border-b border-gray-100">
         <div className="flex items-center justify-between px-4 py-3 pt-safe-top">
           <button
-            onClick={() => {
-              handleBlur();
-              router.push('/');
-            }}
+            onClick={handleBack}
             className="flex items-center gap-1 text-gray-600 active:text-gray-900 -ml-1 py-1"
           >
             <svg className="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
@@ -288,7 +338,13 @@ export default function NoteDetailPage() {
                 AI Rewrite
               </label>
 
-              {(note.ai_status === 'pending' || note.ai_status === 'processing') && (
+              {note.ai_status === 'pending' && !note.ai_rewrite && (
+                <p className="text-sm text-gray-400 py-4">
+                  Will process when you close the note.
+                </p>
+              )}
+
+              {note.ai_status === 'processing' && (
                 <div className="flex items-center gap-2 text-gray-400 py-4">
                   <div className="w-4 h-4 border-2 border-blue-400 border-t-transparent rounded-full animate-spin" />
                   <span className="text-sm">Processing...</span>
@@ -300,6 +356,18 @@ export default function NoteDetailPage() {
                   <ReactMarkdown remarkPlugins={[remarkGfm]}>
                     {note.ai_rewrite}
                   </ReactMarkdown>
+                </div>
+              )}
+
+              {/* Show old rewrite while pending (content was edited) */}
+              {note.ai_status === 'pending' && note.ai_rewrite && (
+                <div className="opacity-50">
+                  <p className="text-xs text-gray-400 mb-2 italic">Previous version — will update when you close the note</p>
+                  <div className="prose prose-sm prose-gray max-w-none text-gray-700">
+                    <ReactMarkdown remarkPlugins={[remarkGfm]}>
+                      {note.ai_rewrite}
+                    </ReactMarkdown>
+                  </div>
                 </div>
               )}
 

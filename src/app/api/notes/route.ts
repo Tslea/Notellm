@@ -1,6 +1,7 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { supabaseServer } from '@/lib/supabase-server';
-import { processNoteWithAI } from '@/lib/ai';
+
+export const dynamic = 'force-dynamic';
 
 // GET /api/notes — list notes
 export async function GET(request: NextRequest) {
@@ -49,9 +50,6 @@ export async function POST(request: NextRequest) {
   if (error) {
     return NextResponse.json({ error: error.message }, { status: 500 });
   }
-
-  // Trigger AI processing asynchronously (don't await)
-  processNoteWithAI(data.id).catch(console.error);
 
   return NextResponse.json(data, { status: 201 });
 }

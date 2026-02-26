@@ -1,6 +1,5 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { supabaseServer } from '@/lib/supabase-server';
-import { processNoteWithAI } from '@/lib/ai';
 
 // PATCH /api/notes/[id] — update a note
 export async function PATCH(
@@ -16,8 +15,6 @@ export async function PATCH(
       return NextResponse.json({ error: 'Content cannot be empty' }, { status: 400 });
     }
     updates.content = content.trim();
-    updates.ai_status = 'pending';
-    updates.ai_rewrite = null;
   }
 
   if (pinned !== undefined) {
@@ -37,11 +34,6 @@ export async function PATCH(
 
   if (error) {
     return NextResponse.json({ error: error.message }, { status: 500 });
-  }
-
-  // Re-trigger AI if content changed
-  if (content !== undefined) {
-    processNoteWithAI(params.id).catch(console.error);
   }
 
   return NextResponse.json(data);
