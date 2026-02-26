@@ -77,20 +77,23 @@ export async function processNoteWithAI(noteId: string) {
       .update({ ai_status: 'processing', ai_rewrite: null })
       .eq('id', noteId);
 
-    // Fetch the note
-    const { data: note, error: noteError } = await supabaseServer
-      .from('notes')
-      .select('content')
-      .eq('id', noteId)
-      .single();
+    // Fetch note and categories in parallel
+    const [noteResult, categoriesResult] = await Promise.all([
+      supabaseServer
+        .from('notes')
+        .select('content')
+        .eq('id', noteId)
+        .single(),
+      supabaseServer
+        .from('categories')
+        .select('id, name')
+        .order('name'),
+    ]);
 
+    const { data: note, error: noteError } = noteResult;
     if (noteError || !note) throw new Error('Note not found');
 
-    // Fetch existing categories
-    const { data: categories } = await supabaseServer
-      .from('categories')
-      .select('id, name')
-      .order('name');
+    const { data: categories } = categoriesResult;
 
     const categoryNames = categories?.map((c) => c.name) || [];
     const categoriesList = categoryNames.length > 0 ? categoryNames.join(', ') : '(none yet)';
