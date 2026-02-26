@@ -49,5 +49,6 @@ CREATE TRIGGER trigger_notes_updated_at
   FOR EACH ROW
   EXECUTE FUNCTION update_updated_at();
 
--- Enable realtime for notes table
+-- Enable realtime for notes and categories tables
 ALTER PUBLICATION supabase_realtime ADD TABLE notes;
+ALTER PUBLICATION supabase_realtime ADD TABLE categories;

@@ -25,10 +25,24 @@ export default function Home() {
     if (activeCategory) params.set('category_id', activeCategory);
     if (searchQuery) params.set('search', searchQuery);
 
-    const res = await fetch(`/api/notes?${params}`);
+    const res = await fetch(`/api/notes?${params}`, { cache: 'no-store' });
     if (res.ok) {
-      const data = await res.json();
+      const data: Note[] = await res.json();
       setNotes(data);
+
+      // Extract categories from notes as a reliable fallback
+      const catMap = new Map<string, Category>();
+      data.forEach((n) => {
+        const cat = n.categories as Category | null;
+        if (cat) catMap.set(cat.id, cat);
+      });
+      if (catMap.size > 0) {
+        const cats = Array.from(catMap.values()).sort((a, b) => a.name.localeCompare(b.name));
+        setCategories((prev) => prev.length >= cats.length ? prev : cats);
+        const map = new Map<string, number>();
+        cats.forEach((c, i) => map.set(c.id, i));
+        categoryMapRef.current = map;
+      }
     } else {
       setToast("Can't connect to database. Retrying...");
     }
@@ -36,7 +50,7 @@ export default function Home() {
   }, [activeCategory, searchQuery]);
 
   const fetchCategories = useCallback(async () => {
-    const res = await fetch('/api/categories');
+    const res = await fetch('/api/categories', { cache: 'no-store' });
     if (res.ok) {
       const data: Category[] = await res.json();
       setCategories(data);
@@ -52,15 +66,22 @@ export default function Home() {
     fetchNotes();
   }, [fetchNotes, fetchCategories]);
 
-  // Real-time subscription for note changes
+  // Real-time subscription for note and category changes
   useEffect(() => {
     const channel = supabase
-      .channel('notes-changes')
+      .channel('home-changes')
       .on(
         'postgres_changes',
         { event: '*', schema: 'public', table: 'notes' },
         () => {
           fetchNotes();
+          fetchCategories();
+        }
+      )
+      .on(
+        'postgres_changes',
+        { event: '*', schema: 'public', table: 'categories' },
+        () => {
           fetchCategories();
         }
       )
