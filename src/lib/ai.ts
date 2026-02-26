@@ -3,11 +3,11 @@ import { supabaseServer } from './supabase-server';
 const OPENROUTER_API_KEY = process.env.OPENROUTER_API_KEY!;
 const OPENROUTER_URL = 'https://openrouter.ai/api/v1/chat/completions';
 
-// Fallback chain: fast → medium → cheap
+// Fallback chain: gpt-oss-20b → MiMo-V2-Flash → Grok 4.1 Fast
 const MODELS = [
-  'openai/gpt-4o-mini',
-  'mistral/mistral-small-3.1-24b-instruct',
-  'google/gemini-2.0-flash-lite-001',
+  'openai/gpt-oss-20b',
+  'xiaomi/mimo-v2-flash',
+  'x-ai/grok-4.1-fast',
 ];
 const TIMEOUT_MS = 15_000; // 15s per model attempt
 
