@@ -1,6 +1,26 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { supabaseServer } from '@/lib/supabase-server';
 
+// GET /api/notes/[id] — fetch a single note
+export async function GET(
+  _request: NextRequest,
+  { params }: { params: { id: string } }
+) {
+  const { data, error } = await supabaseServer
+    .from('notes')
+    .select('*, categories(*)')
+    .eq('id', params.id)
+    .single();
+
+  if (error) {
+    return NextResponse.json({ error: error.message }, { status: 404 });
+  }
+
+  return NextResponse.json(data, {
+    headers: { 'Cache-Control': 'private, no-cache' },
+  });
+}
+
 // PATCH /api/notes/[id] — update a note
 export async function PATCH(
   request: NextRequest,

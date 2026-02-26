@@ -6,8 +6,15 @@ import { supabase } from '@/lib/supabase-browser';
 import { Note, Category } from '@/lib/types';
 import { getCategoryColor } from '@/lib/category-colors';
 import Toast from '@/components/Toast';
-import ReactMarkdown from 'react-markdown';
-import remarkGfm from 'remark-gfm';
+import dynamic from 'next/dynamic';
+
+const MarkdownRenderer = dynamic(
+  () => import('@/components/MarkdownRenderer'),
+  {
+    loading: () => <div className="animate-pulse h-20 bg-gray-100 rounded-lg" />,
+    ssr: false,
+  }
+);
 
 export default function NoteDetailPage() {
   const params = useParams();
@@ -39,32 +46,29 @@ export default function NoteDetailPage() {
     }
   }
 
-  // Fetch note data
+  // Fetch single note by ID + resolve category index in parallel
   const fetchNote = useCallback(async (id: string) => {
-    const res = await fetch(`/api/notes?search=`);
-    if (!res.ok) return;
-    const notes: Note[] = await res.json();
-    const found = notes.find((n) => n.id === id);
-    if (found) {
-      setNote(found);
-      // Only update content if user hasn't typed something new
-      if (savedContentRef.current === '' || savedContentRef.current === found.content) {
-        setContent(found.content);
-        savedContentRef.current = found.content;
-      }
-      if (savedTitleRef.current === '' || savedTitleRef.current === found.title) {
-        setTitle(found.title || '');
-        savedTitleRef.current = found.title || '';
-      }
-      // Get category index
-      if (found.category_id) {
-        const catRes = await fetch('/api/categories');
-        if (catRes.ok) {
-          const cats: Category[] = await catRes.json();
-          const idx = cats.findIndex((c) => c.id === found.category_id);
-          if (idx >= 0) setCategoryIndex(idx);
-        }
-      }
+    const [noteRes, catRes] = await Promise.all([
+      fetch(`/api/notes/${id}`),
+      fetch('/api/categories'),
+    ]);
+    if (!noteRes.ok) return;
+    const found: Note = await noteRes.json();
+    setNote(found);
+    // Only update content if user hasn't typed something new
+    if (savedContentRef.current === '' || savedContentRef.current === found.content) {
+      setContent(found.content);
+      savedContentRef.current = found.content;
+    }
+    if (savedTitleRef.current === '' || savedTitleRef.current === found.title) {
+      setTitle(found.title || '');
+      savedTitleRef.current = found.title || '';
+    }
+    // Resolve category index from categories list
+    if (found.category_id && catRes.ok) {
+      const cats: Category[] = await catRes.json();
+      const idx = cats.findIndex((c) => c.id === found.category_id);
+      if (idx >= 0) setCategoryIndex(idx);
     }
   }, []);
 
@@ -391,9 +395,7 @@ export default function NoteDetailPage() {
 
               {note.ai_status === 'done' && note.ai_rewrite && (
                 <div className="prose prose-sm prose-gray max-w-none text-gray-700">
-                  <ReactMarkdown remarkPlugins={[remarkGfm]}>
-                    {note.ai_rewrite}
-                  </ReactMarkdown>
+                  <MarkdownRenderer>{note.ai_rewrite}</MarkdownRenderer>
                 </div>
               )}
 
@@ -402,9 +404,7 @@ export default function NoteDetailPage() {
                 <div className="opacity-50">
                   <p className="text-xs text-gray-400 mb-2 italic">Previous version — will update when you close the note</p>
                   <div className="prose prose-sm prose-gray max-w-none text-gray-700">
-                    <ReactMarkdown remarkPlugins={[remarkGfm]}>
-                      {note.ai_rewrite}
-                    </ReactMarkdown>
+                    <MarkdownRenderer>{note.ai_rewrite}</MarkdownRenderer>
                   </div>
                 </div>
               )}

@@ -60,10 +60,9 @@ export default function Home() {
     }
   }, []);
 
-  // Initial load
+  // Initial load — fetch both in parallel
   useEffect(() => {
-    fetchCategories();
-    fetchNotes();
+    Promise.all([fetchCategories(), fetchNotes()]);
   }, [fetchNotes, fetchCategories]);
 
   // Real-time subscription for note and category changes
@@ -75,7 +74,6 @@ export default function Home() {
         { event: '*', schema: 'public', table: 'notes' },
         () => {
           fetchNotes();
-          fetchCategories();
         }
       )
       .on(
@@ -102,19 +100,33 @@ export default function Home() {
   }
 
   async function handleTogglePin(noteId: string, currentPinned: boolean) {
+    // Optimistic update
+    setNotes((prev) =>
+      prev.map((n) => n.id === noteId ? { ...n, pinned: !currentPinned } : n)
+    );
     const res = await fetch(`/api/notes/${noteId}`, {
       method: 'PATCH',
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify({ pinned: !currentPinned }),
     });
-    if (res.ok) {
-      fetchNotes();
+    if (!res.ok) {
+      // Revert on failure
+      setNotes((prev) =>
+        prev.map((n) => n.id === noteId ? { ...n, pinned: currentPinned } : n)
+      );
     }
   }
 
   function handleNewNote() {
     router.push('/note/new');
   }
+
+  // Prefetch note detail pages when notes are loaded
+  useEffect(() => {
+    notes.slice(0, 10).forEach((note) => {
+      router.prefetch(`/note/${note.id}`);
+    });
+  }, [notes, router]);
 
   function getCategoryIndex(categoryId: string | null): number {
     if (!categoryId) return 0;
@@ -176,8 +188,18 @@ export default function Home() {
       {/* Notes list */}
       <main className="px-4 py-4 pb-safe-bottom">
         {loading ? (
-          <div className="flex items-center justify-center py-20">
-            <div className="w-6 h-6 border-2 border-gray-300 border-t-gray-600 rounded-full animate-spin" />
+          <div className="space-y-3">
+            {[0, 1, 2].map((i) => (
+              <div key={i} className="bg-white border border-gray-100 rounded-xl p-4 animate-pulse">
+                <div className="flex items-center gap-2 mb-2">
+                  <div className="h-5 w-16 bg-gray-100 rounded-full" />
+                  <div className="h-3 w-12 bg-gray-100 rounded ml-auto" />
+                </div>
+                <div className="h-4 w-3/4 bg-gray-100 rounded mb-2" />
+                <div className="h-3 w-full bg-gray-100 rounded mb-1" />
+                <div className="h-3 w-2/3 bg-gray-100 rounded" />
+              </div>
+            ))}
           </div>
         ) : notes.length === 0 ? (
           <div className="flex flex-col items-center justify-center py-20 text-center">
