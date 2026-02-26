@@ -16,7 +16,8 @@ export function getSupabaseServer(): SupabaseClient {
 
 // Keep backward-compatible export as a getter
 export const supabaseServer = new Proxy({} as SupabaseClient, {
-  get(_target, prop) {
-    return (getSupabaseServer() as any)[prop];
+  get(_target, prop: string | symbol) {
+    const client = getSupabaseServer();
+    return client[prop as keyof SupabaseClient];
   },
 });
