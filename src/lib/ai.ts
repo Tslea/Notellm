@@ -12,13 +12,27 @@ const MODELS = [
 const TIMEOUT_MS = 15_000; // 15s per model attempt
 
 interface AIResponse {
+  title: string;
   rewrite: string;
   category: string;
 }
 
+const SYSTEM_PROMPT = `You are a note-rewriting assistant. You will receive a raw note written quickly by a user and must produce a clean, well-structured version.
+
+CRITICAL RULES:
+- IDENTIFY THE SUBJECT: Read the entire note first. Figure out WHO or WHAT the note is about. People, projects, places, events — never lose track of the subject.
+- PRESERVE ALL KEY FACTS: names, dates, numbers, locations, deadlines, links — keep everything. Do not drop or invent information.
+- KEEP THE ORIGINAL LANGUAGE: if the note is in Italian, rewrite in Italian. If in English, rewrite in English. Never translate.
+- BE CONCISE: remove filler words and repetition, but do not cut substance.
+- USE MARKDOWN: use headings, bullet points, bold for key terms when it improves readability. Keep it light — don't over-format short notes.
+- GENERATE A TITLE: write a short, descriptive title (3-8 words) that captures the main subject of the note.
+
+You must respond ONLY with valid JSON (no markdown fences, no extra text).`;
+
 async function callOpenRouter(
   model: string,
-  prompt: string
+  systemPrompt: string,
+  userPrompt: string
 ): Promise<AIResponse> {
   const response = await fetch(OPENROUTER_URL, {
     method: 'POST',
@@ -28,7 +42,10 @@ async function callOpenRouter(
     },
     body: JSON.stringify({
       model,
-      messages: [{ role: 'user', content: prompt }],
+      messages: [
+        { role: 'system', content: systemPrompt },
+        { role: 'user', content: userPrompt },
+      ],
       temperature: 0.3,
       max_tokens: 2048,
     }),
@@ -78,24 +95,20 @@ export async function processNoteWithAI(noteId: string) {
     const categoryNames = categories?.map((c) => c.name) || [];
     const categoriesList = categoryNames.length > 0 ? categoryNames.join(', ') : '(none yet)';
 
-    const prompt = `You are a note assistant. You receive a raw note and a list of existing categories.
-
-Your tasks:
-1. REWRITE the note: improve clarity, fix grammar, organize structure. Keep the same language as the original. Keep it concise. Use markdown formatting if helpful.
-2. CATEGORIZE: assign the most fitting category from the existing list. Only create a NEW category if none of the existing ones are a reasonable fit. Category names should be short (1-3 words).
-
-Existing categories: ${categoriesList}
+    const userPrompt = `Existing categories: ${categoriesList}
 
 Raw note:
 """
 ${note.content}
 """
 
-Respond ONLY with valid JSON, no markdown fences:
-{
-  "rewrite": "...",
-  "category": "..."
-}`;
+Tasks:
+1. TITLE: write a short title (3-8 words) that captures the main subject.
+2. REWRITE: improve clarity, fix grammar, organize with markdown. Keep the same language. Keep all facts.
+3. CATEGORY: pick the best fit from existing categories. Only create a new one (1-3 words) if none fit.
+
+Respond with JSON:
+{"title": "...", "rewrite": "...", "category": "..."}`;
 
     // Try each model in order until one succeeds
     let parsed: AIResponse | null = null;
@@ -103,7 +116,7 @@ Respond ONLY with valid JSON, no markdown fences:
 
     for (const model of MODELS) {
       try {
-        parsed = await callOpenRouter(model, prompt);
+        parsed = await callOpenRouter(model, SYSTEM_PROMPT, userPrompt);
         break; // success
       } catch (err) {
         lastError = err instanceof Error ? err : new Error(String(err));
@@ -137,14 +150,27 @@ Respond ONLY with valid JSON, no markdown fences:
       }
     }
 
-    // Update note
+    // Update note (set AI-generated title only if user hasn't set one)
+    const updateFields: Record<string, unknown> = {
+      ai_rewrite: parsed.rewrite,
+      category_id: categoryId,
+      ai_status: 'done',
+    };
+
+    // Check if note already has a user-set title
+    const { data: current } = await supabaseServer
+      .from('notes')
+      .select('title')
+      .eq('id', noteId)
+      .single();
+
+    if (!current?.title || current.title === '') {
+      updateFields.title = parsed.title;
+    }
+
     await supabaseServer
       .from('notes')
-      .update({
-        ai_rewrite: parsed.rewrite,
-        category_id: categoryId,
-        ai_status: 'done',
-      })
+      .update(updateFields)
       .eq('id', noteId);
   } catch (error) {
     console.error('AI processing error:', error);

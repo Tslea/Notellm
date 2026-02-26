@@ -16,6 +16,7 @@ export default function NoteDetailPage() {
   const isNew = noteId === 'new';
 
   const [note, setNote] = useState<Note | null>(null);
+  const [title, setTitle] = useState('');
   const [content, setContent] = useState('');
   const [saving, setSaving] = useState(false);
   const [toast, setToast] = useState<string | null>(null);
@@ -24,6 +25,7 @@ export default function NoteDetailPage() {
   const textareaRef = useRef<HTMLTextAreaElement>(null);
   const saveTimerRef = useRef<NodeJS.Timeout | null>(null);
   const savedContentRef = useRef('');
+  const savedTitleRef = useRef('');
   const noteIdRef = useRef<string | null>(null);
   // Track whether content was edited in this session (needs AI reprocess on close)
   const contentDirtyRef = useRef(false);
@@ -49,6 +51,10 @@ export default function NoteDetailPage() {
       if (savedContentRef.current === '' || savedContentRef.current === found.content) {
         setContent(found.content);
         savedContentRef.current = found.content;
+      }
+      if (savedTitleRef.current === '' || savedTitleRef.current === found.title) {
+        setTitle(found.title || '');
+        savedTitleRef.current = found.title || '';
       }
       // Get category index
       if (found.category_id) {
@@ -85,6 +91,11 @@ export default function NoteDetailPage() {
         (payload) => {
           const updated = payload.new as Note;
           setNote((prev) => prev ? { ...prev, ...updated } : null);
+          // Update title if AI generated one and user hasn't changed it
+          if (updated.title && savedTitleRef.current === '') {
+            setTitle(updated.title);
+            savedTitleRef.current = updated.title;
+          }
         }
       )
       .subscribe();
@@ -116,8 +127,8 @@ export default function NoteDetailPage() {
     };
   }, [noteId]);
 
-  // Save function (content only — no AI trigger)
-  async function saveNote(text: string): Promise<boolean> {
+  // Save function (content + title — no AI trigger)
+  async function saveNote(currentTitle: string, text: string): Promise<boolean> {
     if (text.trim().length === 0) return false;
     setSaving(true);
 
@@ -127,13 +138,14 @@ export default function NoteDetailPage() {
         const res = await fetch('/api/notes', {
           method: 'POST',
           headers: { 'Content-Type': 'application/json' },
-          body: JSON.stringify({ content: text }),
+          body: JSON.stringify({ title: currentTitle, content: text }),
         });
         if (res.ok) {
           const data = await res.json();
           noteIdRef.current = data.id;
           setNote(data);
           savedContentRef.current = text;
+          savedTitleRef.current = currentTitle;
           contentDirtyRef.current = true;
           // Replace URL without navigation
           window.history.replaceState(null, '', `/note/${data.id}`);
@@ -145,20 +157,27 @@ export default function NoteDetailPage() {
       } else {
         // Update existing
         const id = noteIdRef.current || noteId;
-        if (text === savedContentRef.current) {
+        const contentChanged = text !== savedContentRef.current;
+        const titleChanged = currentTitle !== savedTitleRef.current;
+        if (!contentChanged && !titleChanged) {
           setSaving(false);
           return true;
         }
+        const body: Record<string, string> = {};
+        if (contentChanged) body.content = text;
+        if (titleChanged) body.title = currentTitle;
+
         const res = await fetch(`/api/notes/${id}`, {
           method: 'PATCH',
           headers: { 'Content-Type': 'application/json' },
-          body: JSON.stringify({ content: text }),
+          body: JSON.stringify(body),
         });
         if (res.ok) {
           const data = await res.json();
           setNote(data);
           savedContentRef.current = text;
-          contentDirtyRef.current = true;
+          savedTitleRef.current = currentTitle;
+          if (contentChanged) contentDirtyRef.current = true;
           setSaving(false);
           return true;
         } else {
@@ -176,18 +195,28 @@ export default function NoteDetailPage() {
   function handleContentChange(value: string) {
     setContent(value);
     autoResize();
+    scheduleSave(title, value);
+  }
 
+  function handleTitleChange(value: string) {
+    setTitle(value);
+    scheduleSave(value, content);
+  }
+
+  function scheduleSave(currentTitle: string, currentContent: string) {
     if (saveTimerRef.current) clearTimeout(saveTimerRef.current);
     saveTimerRef.current = setTimeout(() => {
-      saveNote(value);
+      saveNote(currentTitle, currentContent);
     }, 2000);
   }
 
   // Save on blur (textarea loses focus)
   function handleBlur() {
     if (saveTimerRef.current) clearTimeout(saveTimerRef.current);
-    if (content.trim().length > 0 && content !== savedContentRef.current) {
-      saveNote(content);
+    const contentChanged = content !== savedContentRef.current;
+    const titleChanged = title !== savedTitleRef.current;
+    if ((content.trim().length > 0 && contentChanged) || titleChanged) {
+      saveNote(title, content);
     }
   }
 
@@ -197,8 +226,10 @@ export default function NoteDetailPage() {
     if (saveTimerRef.current) clearTimeout(saveTimerRef.current);
 
     // Save if there are unsaved changes
-    if (content.trim().length > 0 && content !== savedContentRef.current) {
-      await saveNote(content);
+    const contentChanged = content !== savedContentRef.current;
+    const titleChanged = title !== savedTitleRef.current;
+    if ((content.trim().length > 0 && contentChanged) || titleChanged) {
+      await saveNote(title, content);
     }
 
     // Trigger AI reprocess if content was edited
@@ -238,7 +269,7 @@ export default function NoteDetailPage() {
     }
     const res = await fetch(`/api/notes/${id}`, { method: 'DELETE' });
     if (res.ok) {
-      contentDirtyRef.current = false; // no need to reprocess a deleted note
+      contentDirtyRef.current = false;
       router.push('/');
     } else {
       setToast('Failed to delete note.');
@@ -310,11 +341,18 @@ export default function NoteDetailPage() {
       </header>
 
       <main className="px-4 py-4 pb-safe-bottom">
+        {/* Title input */}
+        <input
+          type="text"
+          value={title}
+          onChange={(e) => handleTitleChange(e.target.value)}
+          onBlur={handleBlur}
+          placeholder="Title"
+          className="w-full outline-none text-xl font-semibold text-gray-900 placeholder:text-gray-300 mb-4"
+        />
+
         {/* Original note section */}
         <div className="mb-6">
-          <label className="block text-xs font-medium text-gray-400 uppercase tracking-wider mb-2">
-            Original
-          </label>
           <textarea
             ref={textareaRef}
             value={content}

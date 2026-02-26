@@ -20,7 +20,7 @@ export async function GET(request: NextRequest) {
   }
 
   if (search) {
-    query = query.ilike('content', `%${search}%`);
+    query = query.or(`content.ilike.%${search}%,title.ilike.%${search}%`);
   }
 
   const { data, error } = await query;
@@ -35,15 +35,23 @@ export async function GET(request: NextRequest) {
 // POST /api/notes — create a note
 export async function POST(request: NextRequest) {
   const body = await request.json();
-  const { content } = body;
+  const { content, title } = body;
 
   if (!content || typeof content !== 'string' || content.trim().length === 0) {
     return NextResponse.json({ error: 'Content is required' }, { status: 400 });
   }
 
+  const insert: Record<string, unknown> = {
+    content: content.trim(),
+    ai_status: 'pending',
+  };
+  if (title && typeof title === 'string') {
+    insert.title = title.trim();
+  }
+
   const { data, error } = await supabaseServer
     .from('notes')
-    .insert({ content: content.trim(), ai_status: 'pending' })
+    .insert(insert)
     .select('*, categories(*)')
     .single();
 

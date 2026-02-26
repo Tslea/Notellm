@@ -149,6 +149,13 @@ export default function NoteCard({
               </span>
             </div>
 
+            {/* Title */}
+            {note.title ? (
+              <p className="text-sm font-semibold text-gray-900 mb-0.5 line-clamp-1">
+                {note.title}
+              </p>
+            ) : null}
+
             {/* Preview text */}
             <p className="text-sm text-gray-700 line-clamp-2 leading-relaxed">
               {preview}

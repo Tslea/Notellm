@@ -7,7 +7,7 @@ export async function PATCH(
   { params }: { params: { id: string } }
 ) {
   const body = await request.json();
-  const { content, pinned } = body;
+  const { content, title, pinned } = body;
   const updates: Record<string, unknown> = {};
 
   if (content !== undefined) {
@@ -15,6 +15,10 @@ export async function PATCH(
       return NextResponse.json({ error: 'Content cannot be empty' }, { status: 400 });
     }
     updates.content = content.trim();
+  }
+
+  if (title !== undefined) {
+    updates.title = typeof title === 'string' ? title.trim() : '';
   }
 
   if (pinned !== undefined) {

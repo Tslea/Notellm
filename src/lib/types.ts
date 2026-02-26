@@ -6,6 +6,7 @@ export interface Category {
 
 export interface Note {
   id: string;
+  title: string;
   content: string;
   ai_rewrite: string | null;
   category_id: string | null;

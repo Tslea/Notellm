@@ -11,6 +11,7 @@ CREATE TABLE IF NOT EXISTS categories (
 -- Notes table
 CREATE TABLE IF NOT EXISTS notes (
   id uuid DEFAULT gen_random_uuid() PRIMARY KEY,
+  title text NOT NULL DEFAULT '',
   content text NOT NULL,
   ai_rewrite text,
   category_id uuid REFERENCES categories(id) ON DELETE SET NULL,
@@ -19,6 +20,13 @@ CREATE TABLE IF NOT EXISTS notes (
   created_at timestamptz DEFAULT now() NOT NULL,
   updated_at timestamptz DEFAULT now() NOT NULL
 );
+
+-- Migration for existing databases: add title column if it doesn't exist
+DO $$ BEGIN
+  IF NOT EXISTS (SELECT 1 FROM information_schema.columns WHERE table_name = 'notes' AND column_name = 'title') THEN
+    ALTER TABLE notes ADD COLUMN title text NOT NULL DEFAULT '';
+  END IF;
+END $$;
 
 -- Indexes
 CREATE INDEX IF NOT EXISTS idx_notes_category_id ON notes(category_id);
