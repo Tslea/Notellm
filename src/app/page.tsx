@@ -140,8 +140,8 @@ export default function Home() {
           )}
         </div>
 
-        {/* Category tabs */}
-        {!searchOpen && categories.length > 0 && (
+        {/* Category tabs — always visible so filter UI is discoverable */}
+        {!searchOpen && (
           <div className="px-4 pb-2">
             <CategoryTabs
               categories={categories}
